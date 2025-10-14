@@ -307,6 +307,63 @@ func (api *ObsidianAPI) SearchNotes(query string) (string, error) {
 	return result, nil
 }
 
+// countVaultFiles recursively counts all markdown files and folders
+func (api *ObsidianAPI) countVaultFiles(path string, allFiles *[]string, folders *map[string]bool) error {
+	endpoint := "/vault/"
+	if path != "" {
+		endpoint = "/vault/" + path + "/"
+	}
+
+	resp, err := api.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// If folder doesn't exist or is empty, that's ok
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to list files in %s: %s", path, resp.Status)
+	}
+
+	var files map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		return err
+	}
+
+	if filesList, ok := files["files"].([]interface{}); ok {
+		for _, file := range filesList {
+			if filename, ok := file.(string); ok {
+				// Check if it's a folder (ends with /)
+				if strings.HasSuffix(filename, "/") {
+					// It's a folder - remove trailing slash for storage
+					folderName := strings.TrimSuffix(filename, "/")
+					fullPath := folderName
+					if path != "" {
+						fullPath = path + "/" + folderName
+					}
+
+					// Mark folder and recurse into it
+					(*folders)[fullPath] = true
+					api.countVaultFiles(fullPath, allFiles, folders)
+				} else if strings.HasSuffix(filename, ".md") {
+					// It's a markdown file
+					fullPath := filename
+					if path != "" {
+						fullPath = path + "/" + filename
+					}
+					*allFiles = append(*allFiles, fullPath)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // GetVaultInfo gets information about the vault
 func (api *ObsidianAPI) GetVaultInfo() (string, error) {
 	resp, err := api.makeRequest("GET", "/", nil)
@@ -341,32 +398,14 @@ func (api *ObsidianAPI) GetVaultInfo() (string, error) {
 		}
 	}
 
-	// Get additional vault statistics
-	notesResp, err := api.makeRequest("GET", "/vault/", nil)
-	if err == nil && notesResp.StatusCode == http.StatusOK {
-		var files map[string]interface{}
-		if err := json.NewDecoder(notesResp.Body).Decode(&files); err == nil {
-			if filesList, ok := files["files"].([]interface{}); ok {
-				noteCount := 0
-				folderCount := 0
-				for _, file := range filesList {
-					if fileInfo, ok := file.(map[string]interface{}); ok {
-						if path, ok := fileInfo["path"].(string); ok {
-							if strings.HasSuffix(path, ".md") {
-								noteCount++
-							}
-						}
-						if isFolder, ok := fileInfo["is_folder"].(bool); ok && isFolder {
-							folderCount++
-						}
-					}
-				}
-				result += "\n## Statistics\n"
-				result += fmt.Sprintf("- **Notes:** %d\n", noteCount)
-				result += fmt.Sprintf("- **Folders:** %d\n", folderCount)
-			}
-		}
-		notesResp.Body.Close()
+	// Recursively count all files and folders
+	allFiles := []string{}
+	folders := make(map[string]bool)
+
+	if err := api.countVaultFiles("", &allFiles, &folders); err == nil {
+		result += "\n## Statistics\n"
+		result += fmt.Sprintf("- **Notes:** %d\n", len(allFiles))
+		result += fmt.Sprintf("- **Folders:** %d\n", len(folders))
 	}
 
 	return result, nil
