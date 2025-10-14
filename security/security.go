@@ -1,4 +1,4 @@
-package main
+package security
 
 import (
 	"crypto/subtle"
@@ -27,12 +27,14 @@ type RateLimiter struct {
 	requests map[string][]time.Time
 }
 
+// NewRateLimiter creates a new rate limiter
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
 		requests: make(map[string][]time.Time),
 	}
 }
 
+// Allow checks if a request from the given IP is allowed
 func (rl *RateLimiter) Allow(ip string, limit int) bool {
 	now := time.Now()
 	cutoff := now.Add(-time.Minute)
@@ -58,59 +60,61 @@ func (rl *RateLimiter) Allow(ip string, limit int) bool {
 	return true
 }
 
-// Security middleware
-func (s *MCPServer) securityMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. IP Whitelist check
-		if len(s.config.Security.AllowedIPs) > 0 {
-			clientIP := getClientIP(r)
-			if !isIPAllowed(clientIP, s.config.Security.AllowedIPs) {
-				http.Error(w, "Forbidden: IP not allowed", http.StatusForbidden)
-				return
+// Middleware creates a security middleware handler
+func Middleware(config SecurityConfig, rateLimiter *RateLimiter) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// 1. IP Whitelist check
+			if len(config.AllowedIPs) > 0 {
+				clientIP := GetClientIP(r)
+				if !isIPAllowed(clientIP, config.AllowedIPs) {
+					http.Error(w, "Forbidden: IP not allowed", http.StatusForbidden)
+					return
+				}
 			}
+
+			// 2. Authentication check
+			if config.EnableAuth {
+				authHeader := r.Header.Get("Authorization")
+				expectedAuth := "Bearer " + config.AuthToken
+
+				if !secureCompare(authHeader, expectedAuth) {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+
+			// 3. Rate limiting
+			if config.EnableRateLimit {
+				clientIP := GetClientIP(r)
+				if !rateLimiter.Allow(clientIP, config.RateLimit) {
+					http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+					return
+				}
+			}
+
+			// 4. CORS handling
+			if config.EnableCORS {
+				origin := r.Header.Get("Origin")
+				if isOriginAllowed(origin, config.AllowedOrigins) {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				}
+
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+			}
+
+			next(w, r)
 		}
-
-		// 2. Authentication check
-		if s.config.Security.EnableAuth {
-			authHeader := r.Header.Get("Authorization")
-			expectedAuth := "Bearer " + s.config.Security.AuthToken
-
-			if !secureCompare(authHeader, expectedAuth) {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-		}
-
-		// 3. Rate limiting
-		if s.config.Security.EnableRateLimit {
-			clientIP := getClientIP(r)
-			if !s.rateLimiter.Allow(clientIP, s.config.Security.RateLimit) {
-				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-				return
-			}
-		}
-
-		// 4. CORS handling
-		if s.config.Security.EnableCORS {
-			origin := r.Header.Get("Origin")
-			if isOriginAllowed(origin, s.config.Security.AllowedOrigins) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			}
-
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-		}
-
-		next(w, r)
 	}
 }
 
-// Input validation middleware
-func (s *MCPServer) validateInput(next http.HandlerFunc) http.HandlerFunc {
+// ValidateInputMiddleware validates input for POST requests
+func ValidateInputMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check content type
 		if r.Method == "POST" && r.Header.Get("Content-Type") != "application/json" {
@@ -125,8 +129,8 @@ func (s *MCPServer) validateInput(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Path validation - prevent directory traversal
-func validatePath(path string) error {
+// ValidatePath validates file paths to prevent directory traversal and other attacks
+func ValidatePath(path string) error {
 	// Check for directory traversal attempts
 	if strings.Contains(path, "..") {
 		return fmt.Errorf("invalid path: directory traversal not allowed")
@@ -162,8 +166,8 @@ func validatePath(path string) error {
 	return nil
 }
 
-// Sanitize content - prevent XSS and injection
-func sanitizeContent(content string) string {
+// SanitizeContent sanitizes content to prevent XSS and injection attacks
+func SanitizeContent(content string) string {
 	// This is basic - you might want to use a proper sanitization library
 	// For now, we just limit some dangerous patterns
 
@@ -173,9 +177,8 @@ func sanitizeContent(content string) string {
 	return content
 }
 
-// Helper functions
-
-func getClientIP(r *http.Request) string {
+// GetClientIP extracts the client IP from the request
+func GetClientIP(r *http.Request) string {
 	// Check X-Forwarded-For header
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
@@ -193,6 +196,24 @@ func getClientIP(r *http.Request) string {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return ip
 }
+
+// AuditLog logs audit information
+func AuditLog(r *http.Request, action string, result string) {
+	if os.Getenv("ENABLE_AUDIT_LOG") == "true" {
+		log := map[string]interface{}{
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"ip":        GetClientIP(r),
+			"action":    action,
+			"result":    result,
+			"path":      r.URL.Path,
+		}
+
+		jsonLog, _ := json.Marshal(log)
+		fmt.Fprintf(os.Stderr, "AUDIT: %s\n", jsonLog)
+	}
+}
+
+// Helper functions
 
 func isIPAllowed(clientIP string, allowedIPs []string) bool {
 	for _, allowed := range allowedIPs {
@@ -222,20 +243,4 @@ func isOriginAllowed(origin string, allowedOrigins []string) bool {
 
 func secureCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
-
-// Audit logging
-func (s *MCPServer) auditLog(r *http.Request, action string, result string) {
-	if os.Getenv("ENABLE_AUDIT_LOG") == "true" {
-		log := map[string]interface{}{
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
-			"ip":        getClientIP(r),
-			"action":    action,
-			"result":    result,
-			"path":      r.URL.Path,
-		}
-
-		jsonLog, _ := json.Marshal(log)
-		fmt.Fprintf(os.Stderr, "AUDIT: %s\n", jsonLog)
-	}
 }

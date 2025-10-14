@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"os"
 
+	"obsidian-mcp/api"
+	"obsidian-mcp/security"
+
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v2"
 )
@@ -25,14 +28,14 @@ type Config struct {
 		Host        string `yaml:"host"`
 		Description string `yaml:"description"`
 	} `yaml:"mcp"`
-	Security SecurityConfig `yaml:"security"`
+	Security security.SecurityConfig `yaml:"security"`
 }
 
 // MCPServer represents the MCP server
 type MCPServer struct {
 	config      Config
-	obsidianAPI *ObsidianAPI
-	rateLimiter *RateLimiter
+	obsidianAPI *api.ObsidianAPI
+	rateLimiter *security.RateLimiter
 }
 
 // MCPResponse represents a standard MCP response
@@ -239,21 +242,21 @@ func (s *MCPServer) handleCallTool(w http.ResponseWriter, r *http.Request) {
 	var req MCPRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.sendError(w, req.ID, -32700, "Parse error")
-		s.auditLog(r, "parse_error", "failed")
+		security.AuditLog(r, "parse_error", "failed")
 		return
 	}
 
 	params, ok := req.Params.(map[string]interface{})
 	if !ok {
 		s.sendError(w, req.ID, -32602, "Invalid params")
-		s.auditLog(r, "invalid_params", "failed")
+		security.AuditLog(r, "invalid_params", "failed")
 		return
 	}
 
 	toolName, ok := params["name"].(string)
 	if !ok {
 		s.sendError(w, req.ID, -32602, "Missing tool name")
-		s.auditLog(r, "missing_tool_name", "failed")
+		security.AuditLog(r, "missing_tool_name", "failed")
 		return
 	}
 
@@ -264,22 +267,22 @@ func (s *MCPServer) handleCallTool(w http.ResponseWriter, r *http.Request) {
 
 	// Validate path if present
 	if path, ok := arguments["path"].(string); ok {
-		if err := validatePath(path); err != nil {
+		if err := security.ValidatePath(path); err != nil {
 			s.sendError(w, req.ID, -32602, fmt.Sprintf("Invalid path: %s", err.Error()))
-			s.auditLog(r, fmt.Sprintf("invalid_path_%s", toolName), "failed")
+			security.AuditLog(r, fmt.Sprintf("invalid_path_%s", toolName), "failed")
 			return
 		}
 	}
 
 	// Sanitize content if present
 	if content, ok := arguments["content"].(string); ok {
-		arguments["content"] = sanitizeContent(content)
+		arguments["content"] = security.SanitizeContent(content)
 	}
 
 	result, err := s.executeTool(toolName, arguments)
 	if err != nil {
 		s.sendError(w, req.ID, -32603, err.Error())
-		s.auditLog(r, toolName, "failed")
+		security.AuditLog(r, toolName, "failed")
 		return
 	}
 
@@ -291,7 +294,7 @@ func (s *MCPServer) handleCallTool(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	})
-	s.auditLog(r, toolName, "success")
+	security.AuditLog(r, toolName, "success")
 }
 
 func (s *MCPServer) executeTool(toolName string, arguments map[string]interface{}) (string, error) {
@@ -417,11 +420,14 @@ func (s *MCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
 func (s *MCPServer) setupRoutes() *mux.Router {
 	router := mux.NewRouter()
 
+	// Create security middleware wrapper
+	securityMw := security.Middleware(s.config.Security, s.rateLimiter)
+
 	// Apply security middleware to all routes
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			s.securityMiddleware(func(w http.ResponseWriter, r *http.Request) {
-				s.validateInput(next.ServeHTTP)(w, r)
+			securityMw(func(w http.ResponseWriter, r *http.Request) {
+				security.ValidateInputMiddleware(next.ServeHTTP)(w, r)
 			})(w, r)
 		})
 	})
@@ -447,12 +453,12 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	obsidianAPI := NewObsidianAPI(config.ObsidianAPI.BaseURL, config.ObsidianAPI.Token)
+	obsidianAPI := api.NewObsidianAPI(config.ObsidianAPI.BaseURL, config.ObsidianAPI.Token)
 
 	server := &MCPServer{
 		config:      config,
 		obsidianAPI: obsidianAPI,
-		rateLimiter: NewRateLimiter(),
+		rateLimiter: security.NewRateLimiter(),
 	}
 
 	router := server.setupRoutes()
