@@ -1,161 +1,150 @@
 # Obsidian MCP Server
 
-En Model Context Protocol (MCP) server skriven i Go som integrerar med Obsidian via Local REST API-pluginet. Denna server låter dig komma åt och hantera din Obsidian vault programmatiskt genom MCP-protokollet.
+A Model Context Protocol (MCP) server written in Go that integrates with Obsidian via the Local REST API plugin. This server uses the official MCP Go SDK and communicates via standard input/output (stdio) following the MCP protocol specification.
 
-## Funktioner
+> **AI-Developed**: This project was developed with the assistance of GitHub Copilot and Claude Sonnet 4.5 (via VS Code GitHub Copilot Chat).
 
-- **Anteckningshantering**: Skapa, läsa, uppdatera och ta bort anteckningar
-- **Sök**: Sök genom din vault efter specifik text
-- **Mapphantering**: Skapa mappar och organisera ditt innehåll
-- **Vault-information**: Få översikt över din vault och dess innehåll
-- **MCP-kompatibel**: Fullt kompatibel med Model Context Protocol 2024-11-05
-- **Säkerhetsfunktioner**: Rate limiting, IP-filtrering, och token-baserad autentisering
-- **VS Code-integration**: Fungerar sömlöst med VS Code's MCP-extension
+## Features
 
-## Förutsättningar
+- **Note Management**: Create, read, update, and delete notes
+- **Search**: Search through your vault for specific text
+- **Vault Information**: Get an overview of your vault and its contents
+- **Official MCP SDK**: Built with the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)
+- **Stdio Transport**: Process-based communication via stdin/stdout
+- **MCP Compatible**: Fully compatible with Model Context Protocol 2024-11-05
+- **Path Normalization**: Automatic `.md` extension handling for all operations
+- **VS Code Integration**: Works seamlessly with VS Code's MCP extension
 
-1. **Obsidian** med **Local REST API**-pluginet installerat och aktiverat
-2. **Go 1.21** eller senare
-3. Konfigurerad API-token för Local REST API
+## Prerequisites
+
+1. **Obsidian** with the **Local REST API** plugin installed and enabled
+2. **Go 1.21** or later
+3. Configured API token for Local REST API
 
 ## Installation
 
-1. Klona eller ladda ner detta projekt
-2. Installera beroenden:
+1. Clone or download this project
+2. Install dependencies:
    ```bash
    go mod tidy
    ```
 
-3. Konfigurera din `config.yaml` fil eller använd miljövariabler:
-   ```yaml
-   obsidian_api:
-     base_url: "http://localhost:27123"
-     token: "din-api-token-här"
-     port: 27123
-   
-   mcp:
-     host: "localhost"
-     port: 8080
-     description: "Obsidian MCP Server"
+3. Build the server:
+   ```bash
+   go build -o obsidian-mcp-server
    ```
 
-## Konfiguration
+## Configuration
 
-### Via config.yaml
-Redigera `config.yaml` filen med dina inställningar:
+The server is configured via environment variables when started by an MCP client (like VS Code or Claude Desktop).
 
-```yaml
-obsidian_api:
-  base_url: "http://localhost:27123"
-  token: "din-api-token-här"
-  port: 27123
+### Required Environment Variables
+- `OBSIDIAN_API_TOKEN`: Your Obsidian Local REST API token
+- `OBSIDIAN_API_BASE_URL`: Base URL for Obsidian API (default: `http://localhost:27123`)
 
-mcp:
-  host: "localhost"
-  port: 8080
-  description: "Obsidian MCP Server"
+### Getting Your API Token
 
-security:
-  enable_auth: true
-  api_token: "din-säkra-token"
-  enable_rate_limit: true
-  rate_limit: 100  # requests per minut
-  allowed_ips:
-    - "127.0.0.1"
-    - "::1"
-```
+1. Open Obsidian
+2. Go to Settings → Community Plugins
+3. Find "Local REST API" plugin
+4. Copy the API key from the plugin settings
 
-### Via miljövariabler
-Du kan också använda miljövariabler:
-- `OBSIDIAN_API_TOKEN`: Din Obsidian Local REST API token
-- `OBSIDIAN_API_BASE_URL`: Base URL för Obsidian API (standard: http://localhost:27123)
+## Usage
 
-## Användning
+The MCP server is designed to be started by an MCP client (like VS Code or Claude Desktop) and communicates via stdin/stdout. You typically don't run it manually.
 
-### Starta servern
+### VS Code Integration
 
-#### Via Go
-```bash
-go run .
-```
+1. **Install the MCP extension** in VS Code
 
-#### Via kompilerad binary
-```bash
-# Kompilera först
-go build -o obsidian-mcp-server
-
-# Kör sedan
-./obsidian-mcp-server
-```
-
-#### Via VS Code Task
-1. Öppna projektet i VS Code
-2. Tryck `Cmd+Shift+P` (Mac) eller `Ctrl+Shift+P` (Windows/Linux)
-3. Välj "Tasks: Run Task"
-4. Välj "Run Obsidian MCP Server"
-
-Servern startar på `http://localhost:8080` (eller den port du konfigurerat).
-
-### Integration med VS Code
-
-För att använda MCP-servern i VS Code:
-
-1. **Installera MCP-extension** i VS Code (om inte redan installerad)
-
-2. **Konfigurera MCP-servern** i `.vscode/mcp.json`:
+2. **Configure the server** in `.vscode/mcp.json`:
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "obsidian": {
-      "command": "/absolut/sökväg/till/obsidian-mcp-server"
+      "command": "/absolute/path/to/obsidian-mcp-server",
+      "env": {
+        "OBSIDIAN_API_TOKEN": "your-api-token-here",
+        "OBSIDIAN_API_BASE_URL": "http://localhost:27123"
+      }
     }
   }
 }
 ```
 
-3. **Starta servern** (antingen via VS Code task eller manuellt)
+3. **Reload VS Code** - The MCP extension will automatically start the server
 
-4. **Använd verktygen** via Copilot Chat eller MCP-kommandopaletten
+4. **Use the tools** via GitHub Copilot Chat or MCP commands
 
-### Tillgängliga verktyg
+### Claude Desktop Integration
 
-1. **get_note** - Hämta innehållet i en anteckning
-   - Parameter: `path` (sökväg till anteckningen)
+1. **Build the server** (if not already done):
+```bash
+go build -o obsidian-mcp-server
+```
 
-2. **create_note** - Skapa en ny anteckning
-   - Parametrar: `path` (sökväg), `content` (innehåll)
-   - *Not: Mappar skapas automatiskt när du skapar en fil i dem*
+2. **Configure Claude Desktop** by editing `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "/absolute/path/to/obsidian-mcp-server",
+      "env": {
+        "OBSIDIAN_API_TOKEN": "your-api-token-here",
+        "OBSIDIAN_API_BASE_URL": "http://localhost:27123"
+      }
+    }
+  }
+}
+```
 
-3. **update_note** - Uppdatera en befintlig anteckning
-   - Parametrar: `path` (sökväg), `content` (nytt innehåll)
+3. **Restart Claude Desktop** - The server will start automatically when needed
 
-4. **delete_note** - Ta bort en anteckning
-   - Parameter: `path` (sökväg till anteckningen)
+### Manual Testing (Advanced)
 
-5. **list_notes** - Lista alla anteckningar
-   - Parameter: `folder` (valfri, filtrera på mapp)
+For development/testing, you can run the server manually and interact via stdin/stdout:
 
-6. **search_notes** - Sök efter anteckningar
-   - Parameter: `query` (sökfråga)
+```bash
+# Set environment variables
+export OBSIDIAN_API_TOKEN="your-token"
+export OBSIDIAN_API_BASE_URL="http://localhost:27123"
 
-7. **get_vault_info** - Få information om vault
-   - Inga parametrar
+# Run the server
+./obsidian-mcp-server
+```
 
-### API-endpoints
+Then send JSON-RPC messages via stdin (see MCP Protocol Examples below).
 
-MCP-servern stöder både root-path och `/mcp/`-prefix för kompatibilitet:
+### Available Tools
 
-- `POST /` - Universal MCP endpoint (hanterar alla MCP-requests)
-- `POST /mcp/initialize` - Initialisera MCP-sessionen
-- `POST /mcp/tools/list` - Lista tillgängliga verktyg
-- `POST /mcp/tools/call` - Anropa ett verktyg
-- `GET /health` - Hälsokontroll (ingen autentisering krävs)
+1. **get_note** - Get the content of a note
+   - Parameter: `path` (path to the note, `.md` extension optional)
 
-**Not:** Root-path (`/`) hanterar automatiskt JSON-RPC-notifikationer (som `notifications/initialized`) korrekt enligt MCP-protokollet.
+2. **create_note** - Create a new note
+   - Parameters: `path` (path, `.md` extension optional), `content` (note content)
 
-## Exempel på MCP-anrop
+3. **update_note** - Update an existing note
+   - Parameters: `path` (path, `.md` extension optional), `content` (new content)
 
-### Initialisera
+4. **delete_note** - Delete a note
+   - Parameter: `path` (path to the note, `.md` extension optional)
+
+5. **list_notes** - List all notes in the vault
+   - Parameter: `folder` (optional, filter by folder path)
+
+6. **search_notes** - Search for notes containing text
+   - Parameter: `query` (search query string)
+
+7. **get_vault_info** - Get vault statistics and information
+   - No parameters
+
+**Note:** All tools automatically normalize paths by adding the `.md` extension if not present. You can use `"testfile"` or `"testfile.md"` - both work identically.
+
+## MCP Protocol Examples
+
+These examples show the JSON-RPC messages for manual testing via stdin/stdout.
+
+### Initialize
 ```json
 {
   "jsonrpc": "2.0",
@@ -172,7 +161,7 @@ MCP-servern stöder både root-path och `/mcp/`-prefix för kompatibilitet:
 }
 ```
 
-### Lista verktyg
+### List Tools
 ```json
 {
   "jsonrpc": "2.0",
@@ -181,7 +170,7 @@ MCP-servern stöder både root-path och `/mcp/`-prefix för kompatibilitet:
 }
 ```
 
-### Skapa en anteckning
+### Create a Note
 ```json
 {
   "jsonrpc": "2.0",
@@ -190,80 +179,123 @@ MCP-servern stöder både root-path och `/mcp/`-prefix för kompatibilitet:
   "params": {
     "name": "create_note",
     "arguments": {
-      "path": "Min nya anteckning.md",
-      "content": "# Min nya anteckning\n\nDetta är innehållet i min anteckning."
+      "path": "My New Note.md",
+      "content": "# My New Note\n\nThis is the content of my note."
     }
   }
 }
 ```
 
-## Utveckling
+## Development
 
-### Projektstruktur
+### Project Structure
 ```
 obsidian-mcp/
-├── main.go              # Huvudservern och MCP-hantering
-├── obsidian_api.go      # Obsidian REST API-klient
-├── security.go          # Säkerhetsfunktioner (rate limiting, IP-filtrering)
-├── config.yaml          # Konfigurationsfil
-├── go.mod               # Go-modulberoenden
-├── go.sum               # Go-modulchecksumor
+├── main.go              # MCP server with stdio transport and tool handlers
+├── api/
+│   └── obsidian.go     # Obsidian REST API client
+├── security/
+│   └── security.go     # Path validation and content sanitization
+├── go.mod               # Go module dependencies (includes MCP SDK)
+├── go.sum               # Go module checksums
 ├── .vscode/
-│   ├── tasks.json       # VS Code-tasks för att köra servern
-│   └── mcp.json         # MCP-serverkonfiguration för VS Code
-├── .gitignore           # Git ignore-fil
-└── README.md            # Denna fil
+│   └── mcp.json         # MCP server configuration for VS Code
+├── .gitignore           # Git ignore file
+└── README.md            # This file
 ```
 
-### Bygga för produktion
+### Architecture
+
+The server follows a clean architecture:
+
+- **main.go**: MCP server setup using official SDK
+  - Tool registration with input/output schemas
+  - StdioTransport for stdin/stdout communication
+  - Context-based API client injection
+  
+- **api/obsidian.go**: Obsidian REST API integration
+  - HTTP client for Local REST API
+  - Path normalization (automatic `.md` extension)
+  - CRUD operations for notes
+  
+- **security/security.go**: Security utilities
+  - Path validation (prevent directory traversal)
+  - Content sanitization
+
+### Building for Production
 ```bash
 go build -o obsidian-mcp-server .
 ```
 
-### Testa anslutningen
-```bash
-curl http://localhost:8080/health
-```
+The resulting binary is self-contained and can be deployed anywhere. Just ensure the environment variables are set when the MCP client starts it.
 
-## Felsökning
+## Troubleshooting
 
-### Vanliga problem
+### Common Issues
 
-1. **"connection refused"**: 
-   - Kontrollera att Obsidian är igång och Local REST API-pluginet är aktiverat
-   - Verifiera att porten (standard 27123) är korrekt i konfigurationen
+1. **"connection refused" or "dial tcp [::1]:27123: connect: connection refused"**: 
+   - Check that Obsidian is running
+   - Verify the Local REST API plugin is enabled in Obsidian
+   - Confirm the port (default 27123) matches your Local REST API settings
 
 2. **"unauthorized"**: 
-   - Verifiera din API-token i konfigurationen
-   - Kontrollera att tokenen matchar den i Obsidian Local REST API-inställningarna
+   - Verify your `OBSIDIAN_API_TOKEN` matches the token in Obsidian Local REST API settings
+   - Check that the environment variable is correctly set in your MCP client configuration
 
-3. **"not found"**: 
-   - Kontrollera att anteckningssökvägarna är korrekta (relativt till vault-roten)
-   - Använd `.md`-filändelsen i sökvägen
+3. **Server doesn't start in VS Code**:
+   - Check the MCP extension output panel for errors
+   - Verify the `command` path in `.vscode/mcp.json` is absolute and correct
+   - Ensure the binary is built (`go build -o obsidian-mcp-server`)
+   - Reload VS Code after configuration changes
 
-4. **"Method not found: notifications/initialized"**:
-   - Detta har nu åtgärdats - servern hanterar notifikationer korrekt
-   - Om problemet kvarstår, säkerställ att du kör den senaste versionen
+4. **Duplicate files (e.g., "testfile" and "testfile.md")**:
+   - This has been fixed in the latest version
+   - All operations now normalize paths consistently
+   - Rebuild the server: `go build -o obsidian-mcp-server`
+   - Restart your MCP client
 
-5. **Rate limit-fel**:
-   - Justera `rate_limit` i `config.yaml` om du behöver fler requests per minut
-   - Eller inaktivera rate limiting genom att sätta `enable_rate_limit: false`
+5. **Path issues**:
+   - Use forward slashes `/` even on Windows
+   - Paths are relative to vault root
+   - `.md` extension is optional - it's added automatically
 
-6. **IP-blockeringsfel**:
-   - Lägg till din IP-adress i `allowed_ips`-listan i `config.yaml`
-   - Eller inaktivera IP-filtrering genom att lämna `allowed_ips` tom
+### Debugging
 
-### Loggar
+Check the MCP client's output panel/logs:
+- **VS Code**: Open Output panel → Select "MCP: Obsidian" from dropdown
+- **Claude Desktop**: Check Console logs in Developer Tools
 
-Servern loggar all aktivitet till stdout. Kontrollera loggarna för detaljerad felsökningsinformation:
-- Säkerhetsåtgärder (autentisering, rate limiting, IP-filtrering)
-- MCP-requests och svar
-- Obsidian API-anrop och resultat
+The server logs all activity to stderr, which the MCP client captures.
 
-## Bidrag
+## Contributing
 
-Bidrag är välkomna! Skapa gärna issues eller pull requests.
+Contributions are welcome! Feel free to create issues or pull requests.
 
-## Licens
+## Development
+
+This project was developed with:
+- **GitHub Copilot** - AI-assisted code generation and editing
+- **Claude Sonnet 4.5** - Architecture, problem-solving, and documentation (via GitHub Copilot Chat)
+
+### Technology Stack
+
+- **Go 1.21+** - Modern, efficient language with great concurrency support
+- **MCP Go SDK** - Official SDK for Model Context Protocol
+- **Obsidian Local REST API** - Integration with Obsidian vault
+- **StdioTransport** - Standard MCP communication pattern
+
+### Key Design Decisions
+
+1. **Stdio over HTTP**: Following MCP best practices, the server uses stdin/stdout for communication rather than HTTP
+2. **Official SDK**: Using the official MCP Go SDK ensures protocol compliance and reduces maintenance
+3. **Path Normalization**: Automatic `.md` extension handling for better UX
+4. **Context-Based Injection**: API client passed via context for clean handler signatures
+
+The project follows Go best practices with package separation:
+- `main` - MCP server setup and tool handlers
+- `api/` - Obsidian REST API client
+- `security/` - Validation and sanitization utilities
+
+## License
 
 MIT License

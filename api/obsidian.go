@@ -142,6 +142,8 @@ func (api *ObsidianAPI) GetNote(path string) (string, error) {
 
 // CreateNote creates a new note
 func (api *ObsidianAPI) CreateNote(path, content string) (string, error) {
+	// Normalize path to ensure .md extension
+	path = normalizeNotePath(path)
 	endpoint := fmt.Sprintf("/vault/%s", url.PathEscape(path))
 
 	resp, err := api.makeTextRequest("PUT", endpoint, content)
@@ -159,6 +161,8 @@ func (api *ObsidianAPI) CreateNote(path, content string) (string, error) {
 
 // UpdateNote updates an existing note
 func (api *ObsidianAPI) UpdateNote(path, content string) (string, error) {
+	// Normalize path to ensure .md extension
+	path = normalizeNotePath(path)
 	endpoint := fmt.Sprintf("/vault/%s", url.PathEscape(path))
 
 	resp, err := api.makeTextRequest("PUT", endpoint, content)
@@ -176,6 +180,8 @@ func (api *ObsidianAPI) UpdateNote(path, content string) (string, error) {
 
 // DeleteNote deletes a note
 func (api *ObsidianAPI) DeleteNote(path string) (string, error) {
+	// Normalize path to ensure .md extension
+	path = normalizeNotePath(path)
 	endpoint := fmt.Sprintf("/vault/%s", url.PathEscape(path))
 
 	resp, err := api.makeRequest("DELETE", endpoint, nil)
