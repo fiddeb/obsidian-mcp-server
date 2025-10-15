@@ -1,18 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 
 	"obsidian-mcp/api"
 	"obsidian-mcp/security"
 
-	"github.com/gorilla/mux"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gopkg.in/yaml.v2"
 )
 
@@ -24,40 +21,170 @@ type Config struct {
 		Port    int    `yaml:"port"`
 	} `yaml:"obsidian_api"`
 	MCP struct {
-		Port        int    `yaml:"port"`
-		Host        string `yaml:"host"`
 		Description string `yaml:"description"`
 	} `yaml:"mcp"`
-	Security security.SecurityConfig `yaml:"security"`
 }
 
-// MCPServer represents the MCP server
-type MCPServer struct {
-	config      Config
-	obsidianAPI *api.ObsidianAPI
-	rateLimiter *security.RateLimiter
+// contextKey type for context values
+type contextKey string
+
+const apiKey contextKey = "api"
+
+// Tool Input/Output types
+
+type GetNoteInput struct {
+	Path string `json:"path" jsonschema:"description:Path to the note file"`
 }
 
-// MCPResponse represents a standard MCP response
-type MCPResponse struct {
-	Jsonrpc string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *MCPError   `json:"error,omitempty"`
+type CreateNoteInput struct {
+	Path    string `json:"path" jsonschema:"description:Path where the note should be created"`
+	Content string `json:"content" jsonschema:"description:Content of the note"`
 }
 
-// MCPError represents an MCP error
-type MCPError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+type UpdateNoteInput struct {
+	Path    string `json:"path" jsonschema:"description:Path to the note to update"`
+	Content string `json:"content" jsonschema:"description:New content for the note"`
 }
 
-// MCPRequest represents an MCP request
-type MCPRequest struct {
-	Jsonrpc string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-	ID      interface{} `json:"id,omitempty"`
+type DeleteNoteInput struct {
+	Path string `json:"path" jsonschema:"description:Path to the note to delete"`
+}
+
+type ListNotesInput struct {
+	Folder string `json:"folder,omitempty" jsonschema:"description:Optional folder to filter by"`
+}
+
+type SearchNotesInput struct {
+	Query string `json:"query" jsonschema:"description:Search query"`
+}
+
+type VaultInfoInput struct {
+	// No parameters needed
+}
+
+// Tool Output types
+
+type NoteContentOutput struct {
+	Content string `json:"content" jsonschema:"description:Content of the note"`
+}
+
+type MessageOutput struct {
+	Message string `json:"message" jsonschema:"description:Operation result message"`
+}
+
+type NotesListOutput struct {
+	Notes string `json:"notes" jsonschema:"description:List of notes"`
+}
+
+type SearchResultOutput struct {
+	Results string `json:"results" jsonschema:"description:Search results"`
+}
+
+type VaultInfoOutput struct {
+	Info string `json:"info" jsonschema:"description:Vault information"`
+}
+
+// Tool handlers
+
+func GetNote(ctx context.Context, req *mcp.CallToolRequest, input GetNoteInput) (*mcp.CallToolResult, NoteContentOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	if err := security.ValidatePath(input.Path); err != nil {
+		return nil, NoteContentOutput{}, fmt.Errorf("invalid path: %v", err)
+	}
+
+	content, err := obsidianAPI.GetNote(input.Path)
+	if err != nil {
+		return nil, NoteContentOutput{}, fmt.Errorf("failed to get note: %v", err)
+	}
+
+	return nil, NoteContentOutput{Content: content}, nil
+}
+
+func CreateNote(ctx context.Context, req *mcp.CallToolRequest, input CreateNoteInput) (*mcp.CallToolResult, MessageOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	if err := security.ValidatePath(input.Path); err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("invalid path: %v", err)
+	}
+
+	sanitizedContent := security.SanitizeContent(input.Content)
+	msg, err := obsidianAPI.CreateNote(input.Path, sanitizedContent)
+	if err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("failed to create note: %v", err)
+	}
+
+	return nil, MessageOutput{Message: msg}, nil
+}
+
+func UpdateNote(ctx context.Context, req *mcp.CallToolRequest, input UpdateNoteInput) (*mcp.CallToolResult, MessageOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	if err := security.ValidatePath(input.Path); err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("invalid path: %v", err)
+	}
+
+	sanitizedContent := security.SanitizeContent(input.Content)
+	msg, err := obsidianAPI.UpdateNote(input.Path, sanitizedContent)
+	if err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("failed to update note: %v", err)
+	}
+
+	return nil, MessageOutput{Message: msg}, nil
+}
+
+func DeleteNote(ctx context.Context, req *mcp.CallToolRequest, input DeleteNoteInput) (*mcp.CallToolResult, MessageOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	if err := security.ValidatePath(input.Path); err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("invalid path: %v", err)
+	}
+
+	msg, err := obsidianAPI.DeleteNote(input.Path)
+	if err != nil {
+		return nil, MessageOutput{}, fmt.Errorf("failed to delete note: %v", err)
+	}
+
+	return nil, MessageOutput{Message: msg}, nil
+}
+
+func ListNotes(ctx context.Context, req *mcp.CallToolRequest, input ListNotesInput) (*mcp.CallToolResult, NotesListOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	if input.Folder != "" {
+		if err := security.ValidatePath(input.Folder); err != nil {
+			return nil, NotesListOutput{}, fmt.Errorf("invalid folder path: %v", err)
+		}
+	}
+
+	result, err := obsidianAPI.ListNotes(input.Folder)
+	if err != nil {
+		return nil, NotesListOutput{}, fmt.Errorf("failed to list notes: %v", err)
+	}
+
+	return nil, NotesListOutput{Notes: result}, nil
+}
+
+func SearchNotes(ctx context.Context, req *mcp.CallToolRequest, input SearchNotesInput) (*mcp.CallToolResult, SearchResultOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	result, err := obsidianAPI.SearchNotes(input.Query)
+	if err != nil {
+		return nil, SearchResultOutput{}, fmt.Errorf("failed to search notes: %v", err)
+	}
+
+	return nil, SearchResultOutput{Results: result}, nil
+}
+
+func GetVaultInfo(ctx context.Context, req *mcp.CallToolRequest, input VaultInfoInput) (*mcp.CallToolResult, VaultInfoOutput, error) {
+	obsidianAPI := ctx.Value(apiKey).(*api.ObsidianAPI)
+
+	result, err := obsidianAPI.GetVaultInfo()
+	if err != nil {
+		return nil, VaultInfoOutput{}, fmt.Errorf("failed to get vault info: %v", err)
+	}
+
+	return nil, VaultInfoOutput{Info: result}, nil
 }
 
 func loadConfig() (Config, error) {
@@ -66,8 +193,6 @@ func loadConfig() (Config, error) {
 	// Default configuration
 	config.ObsidianAPI.BaseURL = "http://localhost:27123"
 	config.ObsidianAPI.Port = 27123
-	config.MCP.Port = 8080
-	config.MCP.Host = "localhost"
 	config.MCP.Description = "Obsidian MCP Server - Access and manage your Obsidian vault"
 
 	// Try to load from config file
@@ -95,390 +220,67 @@ func loadConfig() (Config, error) {
 	return config, nil
 }
 
-func (s *MCPServer) handleInitialize(w http.ResponseWriter, r *http.Request) {
-	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, req.ID, -32700, "Parse error")
-		return
-	}
-
-	result := map[string]interface{}{
-		"protocolVersion": "2024-11-05",
-		"capabilities": map[string]interface{}{
-			"tools": map[string]interface{}{
-				"listChanged": false,
-			},
-			"resources": map[string]interface{}{
-				"subscribe":   false,
-				"listChanged": false,
-			},
-		},
-		"serverInfo": map[string]interface{}{
-			"name":    "obsidian-mcp-server",
-			"version": "1.0.0",
-		},
-	}
-
-	s.sendResponse(w, req.ID, result)
-}
-
-func (s *MCPServer) handleListTools(w http.ResponseWriter, r *http.Request) {
-	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, req.ID, -32700, "Parse error")
-		return
-	}
-
-	tools := []map[string]interface{}{
-		{
-			"name":        "get_note",
-			"description": "Get the content of a note by its path",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the note (relative to vault root)",
-					},
-				},
-				"required": []string{"path"},
-			},
-		},
-		{
-			"name":        "create_note",
-			"description": "Create a new note with the specified content",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path where the note should be created",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "Content of the note",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-		{
-			"name":        "update_note",
-			"description": "Update an existing note's content",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the note to update",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "New content for the note",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-		{
-			"name":        "delete_note",
-			"description": "Delete a note",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the note to delete",
-					},
-				},
-				"required": []string{"path"},
-			},
-		},
-		{
-			"name":        "list_notes",
-			"description": "List all notes in the vault",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"folder": map[string]interface{}{
-						"type":        "string",
-						"description": "Optional folder to filter by",
-					},
-				},
-			},
-		},
-		{
-			"name":        "search_notes",
-			"description": "Search for notes containing specific text",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"query": map[string]interface{}{
-						"type":        "string",
-						"description": "Search query",
-					},
-				},
-				"required": []string{"query"},
-			},
-		},
-		{
-			"name":        "get_vault_info",
-			"description": "Get information about the vault",
-			"inputSchema": map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-	}
-
-	result := map[string]interface{}{
-		"tools": tools,
-	}
-
-	s.sendResponse(w, req.ID, result)
-}
-
-func (s *MCPServer) handleCallTool(w http.ResponseWriter, r *http.Request) {
-	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, req.ID, -32700, "Parse error")
-		security.AuditLog(r, "parse_error", "failed")
-		return
-	}
-
-	params, ok := req.Params.(map[string]interface{})
-	if !ok {
-		s.sendError(w, req.ID, -32602, "Invalid params")
-		security.AuditLog(r, "invalid_params", "failed")
-		return
-	}
-
-	toolName, ok := params["name"].(string)
-	if !ok {
-		s.sendError(w, req.ID, -32602, "Missing tool name")
-		security.AuditLog(r, "missing_tool_name", "failed")
-		return
-	}
-
-	arguments, ok := params["arguments"].(map[string]interface{})
-	if !ok {
-		arguments = make(map[string]interface{})
-	}
-
-	// Validate path if present
-	if path, ok := arguments["path"].(string); ok {
-		if err := security.ValidatePath(path); err != nil {
-			s.sendError(w, req.ID, -32602, fmt.Sprintf("Invalid path: %s", err.Error()))
-			security.AuditLog(r, fmt.Sprintf("invalid_path_%s", toolName), "failed")
-			return
-		}
-	}
-
-	// Sanitize content if present
-	if content, ok := arguments["content"].(string); ok {
-		arguments["content"] = security.SanitizeContent(content)
-	}
-
-	result, err := s.executeTool(toolName, arguments)
-	if err != nil {
-		s.sendError(w, req.ID, -32603, err.Error())
-		security.AuditLog(r, toolName, "failed")
-		return
-	}
-
-	s.sendResponse(w, req.ID, map[string]interface{}{
-		"content": []map[string]interface{}{
-			{
-				"type": "text",
-				"text": result,
-			},
-		},
-	})
-	security.AuditLog(r, toolName, "success")
-}
-
-func (s *MCPServer) executeTool(toolName string, arguments map[string]interface{}) (string, error) {
-	switch toolName {
-	case "get_note":
-		path, ok := arguments["path"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid path parameter")
-		}
-		return s.obsidianAPI.GetNote(path)
-
-	case "create_note":
-		path, ok := arguments["path"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid path parameter")
-		}
-		content, ok := arguments["content"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid content parameter")
-		}
-		return s.obsidianAPI.CreateNote(path, content)
-
-	case "update_note":
-		path, ok := arguments["path"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid path parameter")
-		}
-		content, ok := arguments["content"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid content parameter")
-		}
-		return s.obsidianAPI.UpdateNote(path, content)
-
-	case "delete_note":
-		path, ok := arguments["path"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid path parameter")
-		}
-		return s.obsidianAPI.DeleteNote(path)
-
-	case "list_notes":
-		folder := ""
-		if f, ok := arguments["folder"].(string); ok {
-			folder = f
-		}
-		return s.obsidianAPI.ListNotes(folder)
-
-	case "search_notes":
-		query, ok := arguments["query"].(string)
-		if !ok {
-			return "", fmt.Errorf("missing or invalid query parameter")
-		}
-		return s.obsidianAPI.SearchNotes(query)
-
-	case "get_vault_info":
-		return s.obsidianAPI.GetVaultInfo()
-
-	default:
-		return "", fmt.Errorf("unknown tool: %s", toolName)
-	}
-}
-
-func (s *MCPServer) sendResponse(w http.ResponseWriter, id interface{}, result interface{}) {
-	response := MCPResponse{
-		Jsonrpc: "2.0",
-		ID:      id,
-		Result:  result,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (s *MCPServer) sendError(w http.ResponseWriter, id interface{}, code int, message string) {
-	response := MCPResponse{
-		Jsonrpc: "2.0",
-		ID:      id,
-		Error: &MCPError{
-			Code:    code,
-			Message: message,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	json.NewEncoder(w).Encode(response)
-}
-
-func (s *MCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
-	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, nil, -32700, "Parse error")
-		return
-	}
-
-	// Handle notifications (requests without ID) - these don't need a response
-	if req.ID == nil {
-		// Notifications like "notifications/initialized" don't require a response
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// Route based on method
-	switch req.Method {
-	case "initialize":
-		// Re-encode the request for the handler
-		body, _ := json.Marshal(req)
-		r.Body = io.NopCloser(bytes.NewBuffer(body))
-		s.handleInitialize(w, r)
-	case "tools/list":
-		body, _ := json.Marshal(req)
-		r.Body = io.NopCloser(bytes.NewBuffer(body))
-		s.handleListTools(w, r)
-	case "tools/call":
-		body, _ := json.Marshal(req)
-		r.Body = io.NopCloser(bytes.NewBuffer(body))
-		s.handleCallTool(w, r)
-	default:
-		s.sendError(w, req.ID, -32601, fmt.Sprintf("Method not found: %s", req.Method))
-	}
-}
-
-func (s *MCPServer) setupRoutes() *mux.Router {
-	router := mux.NewRouter()
-
-	// Create security middleware wrapper
-	securityMw := security.Middleware(s.config.Security, s.rateLimiter)
-
-	// Apply security middleware to all routes
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			securityMw(func(w http.ResponseWriter, r *http.Request) {
-				security.ValidateInputMiddleware(next.ServeHTTP)(w, r)
-			})(w, r)
-		})
-	})
-
-	// MCP endpoints - support both root and /mcp/ prefix for compatibility
-	router.HandleFunc("/", s.handleMCPRequest).Methods("POST")
-	router.HandleFunc("/mcp/initialize", s.handleInitialize).Methods("POST")
-	router.HandleFunc("/mcp/tools/list", s.handleListTools).Methods("POST")
-	router.HandleFunc("/mcp/tools/call", s.handleCallTool).Methods("POST")
-
-	// Health check (no security for monitoring)
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-	}).Methods("GET")
-
-	return router
-}
-
 func main() {
+	// Load configuration
 	config, err := loadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Create Obsidian API client
 	obsidianAPI := api.NewObsidianAPI(config.ObsidianAPI.BaseURL, config.ObsidianAPI.Token)
 
-	server := &MCPServer{
-		config:      config,
-		obsidianAPI: obsidianAPI,
-		rateLimiter: security.NewRateLimiter(),
-	}
+	// Create context with API client
+	ctx := context.WithValue(context.Background(), apiKey, obsidianAPI)
 
-	router := server.setupRoutes()
+	// Create MCP server
+	server := mcp.NewServer(
+		&mcp.Implementation{
+			Name:    "obsidian-mcp-server",
+			Version: "1.0.2",
+		},
+		nil,
+	)
 
-	addr := fmt.Sprintf("%s:%d", config.MCP.Host, config.MCP.Port)
-	log.Printf("Starting MCP server on %s", addr)
-	log.Printf("Obsidian API endpoint: %s", config.ObsidianAPI.BaseURL)
+	// Register all tools
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_note",
+		Description: "Get the content of a note by its path",
+	}, GetNote)
 
-	// Log security settings
-	if config.Security.EnableAuth {
-		log.Printf("🔒 Authentication: ENABLED")
-	}
-	if len(config.Security.AllowedIPs) > 0 {
-		log.Printf("🔒 IP Whitelist: %v", config.Security.AllowedIPs)
-	}
-	if config.Security.EnableRateLimit {
-		log.Printf("🔒 Rate Limit: %d req/min", config.Security.RateLimit)
-	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_note",
+		Description: "Create a new note with the specified path and content",
+	}, CreateNote)
 
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "update_note",
+		Description: "Update an existing note with new content",
+	}, UpdateNote)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_note",
+		Description: "Delete a note by its path",
+	}, DeleteNote)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_notes",
+		Description: "List all notes in the vault or in a specific folder",
+	}, ListNotes)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_notes",
+		Description: "Search for notes containing the specified query",
+	}, SearchNotes)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_vault_info",
+		Description: "Get information about the vault (authentication status, version, statistics)",
+	}, GetVaultInfo)
+
+	// Run server over stdio
+	log.Println("Starting Obsidian MCP Server with stdio transport...")
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
