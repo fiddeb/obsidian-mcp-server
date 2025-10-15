@@ -10,32 +10,50 @@ The project follows Go best practices with package separation:
 
 ```
 obsidian-mcp/
-├── main.go              # Entry point, MCP server setup and handlers
+├── main.go              # Entry point, MCP server setup (stdio) and tool handlers
 ├── api/
 │   └── obsidian.go     # ObsidianAPI client for REST API integration
 ├── security/
-│   └── security.go     # Security middleware, rate limiting, validation
-├── config.yaml         # Configuration file
-└── go.mod              # Go module definition
+│   └── security.go     # Path validation and content sanitization
+├── docs/
+│   └── USER_GUIDE.md   # Comprehensive user guide (English)
+├── LICENSE              # MIT License
+└── go.mod              # Go module definition (includes MCP SDK)
 ```
 
 ## Development Guidelines
 
 ### General Principles
-- Never attempt to compile the project automatically
-- User will handle all terminal commands and compilation
 - Be concise and minimize use of emojis in responses
 - Focus on code quality and Go best practices
 
 ### Documentation
-- All project documentation must be stored in Obsidian vault
-- Documentation path: `Dev/Obsidian MCP server/` in user's vault
-- Use MCP server tools to create/update documentation when available
-- README.md in project root is the only exception (keep in repo)
-- Do not create or maintain a `docs/` directory in the project
+
+**Language:**
+- Obsidian documentation: Swedish with technical terms in English
+- Repository docs (`README.md`, `docs/`): English
+- Code comments: English
+- Commit messages: English
+
+**Structure:**
+- Comprehensive documentation: Obsidian vault at `Dev/Obsidian MCP server/`
+- Quick reference/guides: `docs/` folder in repository (English)
+- Main README: Repository root (English)
+
+**Obsidian Documentation (Swedish):**
+- Write in Swedish but keep technical terms in English
+- Example: "MCP-servern använder stdio transport" (not "standard in/ut")
+- Keep code, commands, and API terms in English
+- Path: `Dev/Obsidian MCP server/{filename}.md`
+
+**Repository Documentation (English):**
+- `docs/USER_GUIDE.md` - Comprehensive user guide
+- `README.md` - Project overview and quick start
+- Keep concise and focused
+
 
 ### Using MCP Server for Documentation
-When the MCP server is running (http://localhost:8080), use it to:
+
 - Create documentation in Obsidian: `create_note` tool
 - Update existing docs: `update_note` tool
 - Search documentation: `search_notes` tool
@@ -61,11 +79,12 @@ Example MCP tool usage:
 - Error handling: always check errors, return descriptive error messages
 
 ### Project-Specific Rules
-- Main package: Entry point and HTTP handlers only
+- Main package: MCP server setup (stdio transport) and tool handlers
 - API package: All Obsidian REST API interactions
-- Security package: Middleware, validation, rate limiting
-- Configuration: Load from config.yaml or environment variables
+- Security package: Path validation and content sanitization only
+- Configuration: Via environment variables (set by MCP client)
 - Never expose API tokens or sensitive data in code
+- No HTTP server code (uses stdio transport)
 
 ## Available MCP Tools
 
@@ -78,18 +97,26 @@ When server is running, these tools are available:
 - `search_notes` - Full-text search across notes
 - `get_vault_info` - Get vault statistics and info
 
+## Architecture
+
+### Stdio Transport
+- Server communicates via stdin/stdout
+- MCP clients start server as subprocess
+- JSON-RPC messages over stdio
+- Follows MCP Protocol 2024-11-05
+
+### Security Model
+- No network exposure (stdio only)
+- Path validation prevents directory traversal
+- Content sanitization removes dangerous characters
+- No rate limiting needed (single process per client)
+
 ## Testing Workflow
 
 User will handle:
-- Compilation: `go build -o obsidian-mcp-server`
-- Running server: `./obsidian-mcp-server` or VS Code task
-- API testing: curl commands or MCP client
+- MCP client starts server automatically
+- Manual testing: `./obsidian-mcp-server` with stdin/stdout
 
-Do not attempt to:
-- Run terminal commands
-- Compile the project
-- Execute the binary
-- Run tests automatically
 
 ## Communication Style
 
@@ -103,7 +130,8 @@ Do not attempt to:
 
 The MCP server is production-ready with:
 - 7 working tools (get_note, create_note, update_note, delete_note, list_notes, search_notes, get_vault_info)
-- Security features (rate limiting, IP filtering, input validation)
-- VS Code integration via MCP extension
+- Stdio transport (official MCP Go SDK v1.0.0)
+- Security features (path validation, content sanitization)
+- VS Code and Claude Desktop integration
 - Comprehensive error handling
 - Automatic .md file extension normalization
